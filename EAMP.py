@@ -34,6 +34,10 @@ class ProjectUI(QDialog):
         self.vc = None
         self.timer = None
         self.video_restart = None
+        self.activation_mood = None
+        self.deactivation_mood = None
+        self.pleasantness_mood = None
+        self.unpleasantness_mood = None
         self.query_results_for_random = []
         self.emotions = ["anger", "disgust", "happy", "neutral", "surprise", "sadness", "fear"]
         self.stars = ['1','2','3','4','5']
@@ -438,7 +442,10 @@ class ProjectUI(QDialog):
 
     def open_stuff(self, filename): #Open the file, credit to user4815162342, on the stackoverflow link in the text above
         if sys.platform == "win32":
-            os.startfile(filename)
+            try:
+                os.startfile(filename)
+            except:
+                QMessageBox.critical(self, "Failed", "File not found.")
         else:
             opener ="open" if sys.platform == "darwin" else "xdg-open"
             subprocess.call([opener, filename])
@@ -462,13 +469,88 @@ class ProjectUI(QDialog):
                 self.music_file = selected_media
                 self.mediaNameBrowser.setText(selected_media["name"])
                 self.mediaUrlBrowser.setText(selected_media["url_or_path"])
+    
+    def exec_media_based_on_mood(self, mood):
+        query_results = []
+        self.coll = self.db["emotion_aware_music_player"]
+        if mood == "activation":
+            for emotion in ["happy", "surprise"]:
+                query = { "emotion": emotion }
+                media = self.coll.find(query)
+                for x in media:
+                    query_results.append(x)
+        elif mood == "deactivation":
+            for emotion in ["sadness"]:
+                query = { "emotion": emotion }
+                media = self.coll.find(query)
+                for x in media:
+                    query_results.append(x)
+        elif mood == "pleasantness":
+            for emotion in ["neutral"]:
+                query = { "emotion": emotion }
+                media = self.coll.find(query)
+                for x in media:
+                    query_results.append(x)
+        elif mood == "unpleasantness":
+            for emotion in ["fear", "disgust", "anger"]:
+                query = { "emotion": emotion }
+                media = self.coll.find(query)
+                for x in media:
+                    query_results.append(x)
+        if not query_results:
+            QMessageBox.critical(self, "Failed", "No media associated to detected emotion.")
+        else:
+            selected_media = random.choice(query_results)
+            url_or_path = selected_media["url_or_path"]
+            if validators.url(url_or_path) or os.path.isabs(url_or_path):
+                self.open_stuff(url_or_path) 
+                self.video_restart = url_or_path
+                self.query_results_for_random = query_results
+                self.music_file = selected_media
+                self.mediaNameBrowser.setText(selected_media["name"])
+                self.mediaUrlBrowser.setText(selected_media["url_or_path"])
         
     def show_emotions_detected_mode(self):
         #detected_emotions_mode = statistics.mode(emotions_detected)
         detected_emotions_mode = max(set(emotions_detected), key=emotions_detected.count)
         self.modeBrowser.setText(detected_emotions_mode)
+        self.lastDetectedEmotionLabel.setText(emotions_detected[-1])
         #print("Mode of detected emotions: {}".format(detected_emotions_mode))
-        self.exec_media_based_on_emotion(detected_emotions_mode)
+        #self.exec_media_based_on_emotion(detected_emotions_mode)
+        delta = 10
+        if self.activation_mood is None:
+            self.activation_mood = 0
+        if self.deactivation_mood is None:
+            self.deactivation_mood = 0
+        if self.pleasantness_mood is None:
+            self.pleasantness_mood = 0
+        if self.unpleasantness_mood is None:
+            self.unpleasantness_mood = 0
+        if self.activation_mood > self.deactivation_mood and self.activation_mood > self.pleasantness_mood and self.activation_mood > self.unpleasantness_mood and (self.activation_mood - self.deactivation_mood) >= delta and (self.activation_mood - self.pleasantness_mood) >= delta and (self.activation_mood - self.unpleasantness_mood) >= delta:
+            self.moodLabel.setText("Positive")
+            self.specificMoodLabel.setText("Activation")
+            self.exec_media_based_on_mood("activation")
+        elif self.deactivation_mood > self.activation_mood and self.deactivation_mood > self.pleasantness_mood and self.deactivation_mood > self.unpleasantness_mood and (self.deactivation_mood - self.activation_mood) >= delta and (self.deactivation_mood - self.pleasantness_mood) >= delta and (self.deactivation_mood - self.unpleasantness_mood) >= delta:
+            self.moodLabel.setText("Negative")
+            self.specificMoodLabel.setText("Deactivation")
+            self.exec_media_based_on_mood("deactivation")
+        elif self.pleasantness_mood > self.activation_mood and self.pleasantness_mood > self.deactivation_mood and self.pleasantness_mood > self.unpleasantness_mood and (self.pleasantness_mood - self.activation_mood) >= delta and (self.pleasantness_mood - self.deactivation_mood) >= delta and (self.pleasantness_mood - self.unpleasantness_mood) >= delta:
+            self.moodLabel.setText("Positive")
+            self.specificMoodLabel.setText("Pleasantness")
+            self.exec_media_based_on_mood("pleasantness")
+        elif self.unpleasantness_mood > self.activation_mood and self.unpleasantness_mood > self.pleasantness_mood and self.unpleasantness_mood > self.deactivation_mood and (self.unpleasantness_mood - self.activation_mood) >= delta and (self.unpleasantness_mood - self.pleasantness_mood) >= delta and (self.unpleasantness_mood - self.deactivation_mood) >= delta:
+            self.moodLabel.setText("Negative")
+            self.specificMoodLabel.setText("Unpleasantness")
+            self.exec_media_based_on_mood("unpleasantness")
+        else:
+            self.moodLabel.setText("Mood not detected")
+            self.specificMoodLabel.setText("Mood not detected")
+            QMessageBox.information(self, "Info", "Mood not detected. A music based on the last emotion detected is starting.")
+            self.exec_media_based_on_emotion(emotions_detected[-1])
+        """else:
+            self.moodLabel.setText("Neutral")
+            self.exec_media_based_on_emotion("neutral")"""
+
 
     def displayImage(self, img, videoLabel, window=1):
         qformat = QImage.Format_Indexed8
@@ -544,7 +626,27 @@ class ProjectUI(QDialog):
                 random.shuffle(actionlist) #Randomly shuffle the list
                 open_stuff(actionlist[0]) #Open the first entry in the list"""
                 emotions_detected.append(emotions[prediction_emo])
-            
+                if emotions[prediction_emo] == "happy" or emotions[prediction_emo] == "surprise":
+                    if self.activation_mood is None:
+                        self.activation_mood = 1
+                    else:
+                        self.activation_mood += 1
+                if emotions[prediction_emo] == "anger" or emotions[prediction_emo] == "fear" or emotions[prediction_emo] == "disgust":
+                    if self.unpleasantness_mood is None:
+                        self.unpleasantness_mood = 1
+                    else:
+                        self.unpleasantness_mood += 1
+                if emotions[prediction_emo] == "neutral":
+                    if self.pleasantness_mood is None:
+                        self.pleasantness_mood = 1
+                    else:
+                        self.pleasantness_mood += 1
+                if emotions[prediction_emo] == "sadness":
+                    if self.deactivation_mood is None:
+                        self.deactivation_mood = 1
+                    else:
+                        self.deactivation_mood += 1
+
             self.image = cv2.flip(frame, 1)
             self.displayImage(self.image, self.videoLabel, 1)
             cv2.imshow(window_name, frame)  #Display the frame
